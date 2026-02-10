@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.seesun.mapper.review.ReviewMapper">
+
+    <insert id="insertReview">
+        INSERT INTO lecture_evaluation (
+            le_id, 
+            mb_id, 
+            score, 
+            content
+        ) VALUES (
+            #{leId}, 
+            #{mbId}, 
+            #{score}, 
+            #{content}
+        )
+    </insert>
+
+    <select id="selectReviews" resultType="com.seesun.dto.review.ReviewDTO">
+        SELECT 
+            le_eval_id as leEvalId,
+            le_id      as leId,
+            mb_id      as mbId,
+            score,
+            content,
+            created_at as createdAt  
+        FROM lecture_evaluation
+        WHERE le_id = #{leId}
+        ORDER BY le_eval_id DESC
+    </select>
+
+    <select id="selectReviewStats" resultType="map">
+        SELECT 
+            COUNT(*) as totalCount,
+            IFNULL(AVG(score), 0) as avgScore,
+            COUNT(CASE WHEN score = 5 THEN 1 END) as star5,
+            COUNT(CASE WHEN score = 4 THEN 1 END) as star4,
+            COUNT(CASE WHEN score = 3 THEN 1 END) as star3,
+            COUNT(CASE WHEN score = 2 THEN 1 END) as star2,
+            COUNT(CASE WHEN score = 1 THEN 1 END) as star1
+        FROM lecture_evaluation
+        WHERE le_id = #{leId}
+    </select>
+
+</mapper>

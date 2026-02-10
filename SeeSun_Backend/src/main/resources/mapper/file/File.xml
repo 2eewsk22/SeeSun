@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+  
+<!-- file mapper이랑 연동예정 -->
+<mapper namespace="com.seesun.mapper.file.FileMapper">
+	<!-- 파일정보 입력  -->
+	<insert id="insertFileData" parameterType="fileData" useGeneratedKeys="true" keyProperty="file_id">
+		INSERT INTO file_list (
+			mb_id,
+			original_name,
+			stored_name,
+			relative_path,
+			size,
+			ext,
+			type_id
+		)
+		VALUES (
+			#{mb_id},
+			#{original_name},
+			#{stored_name},
+			#{relative_path},
+			#{size},
+			#{ext},
+			#{type_id}
+		)
+	</insert>
+	
+	<!-- 파일정보 삭제 -->
+	<delete id="deleteFileData">
+		DELETE FROM file_list
+		WHERE
+			mb_id = #{mb_id} AND
+			type_id = #{type_id} AND
+			relative_path = #{relative_path}
+	</delete>
+	
+	<!-- 파일 경로 가져오기 -->
+	<select id="getFilePath">
+		SELECT relative_path FROM file_list
+		WHERE
+			mb_id = #{mb_id} AND
+			type_id = #{type_id}
+	</select>
+	
+	<!-- 파일 타입별 목록 가져오기 (만든 시간순) -->
+	<select id="getFileListByType" resultType="fileDataResponse">
+		SELECT file_id, original_name, size, created_at
+		FROM file_list
+		WHERE type_id = #{type_id}
+		ORDER BY created_at DESC
+	</select>
+	
+	<!-- 다운로드 전용 파일 데이터 -->
+	<select id="getFileForDownload" resultType="fileDownload">
+		SELECT file_id, mb_id, original_name, stored_name, relative_path, size, ext
+		FROM file_list
+		WHERE file_id = #{file_id}
+	</select>
+</mapper>

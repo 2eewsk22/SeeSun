@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.seesun.mapper.order.OrdersMapper">
+
+    <select id="findLectureById" resultType="map" parameterType="long">
+        SELECT title AS title, cost AS cost
+        FROM lecture WHERE le_id = #{le_Id}
+    </select>
+
+    <select id="findMemberById" resultType="map" parameterType="long">
+        SELECT name AS customerName FROM member WHERE mb_id = #{mb_Id}
+    </select>
+
+    <!-- 1차 결제 정보 DB 삽입   -->
+    <insert id="insertOrder" parameterType="orders">
+        INSERT INTO orders (
+            order_id, mb_id, le_id, cost, title,
+            payment_key, status, created_at, method, approved_at
+        ) VALUES (
+                     #{order_id}, #{mb_id}, #{le_id}, #{cost}, #{title},
+                     NULL, 1, NOW(), NULL, NULL
+                 )
+    </insert>
+
+    <!-- 2차 결제 정보 DB 삽입   -->
+    <update id="updatePaymentSuccess" parameterType="orders">
+        UPDATE orders
+        SET
+            payment_key = #{payment_key},
+            status = 2,
+            method = #{method},
+            approved_at = NOW()
+        WHERE order_id = #{order_id}
+    </update>
+
+    <select id="findOrderByOrderId" resultType="orders">
+        select * from orders where order_id = #{orderId}
+    </select>
+
+    <insert id="insertEnrollment">
+        insert into member_enrollment (mb_id, le_id) values (#{mb_id}, #{le_id})
+    </insert>
+
+    <!--결제 내역  -->
+    <select id="getPaymentHistory" resultType="map">
+        SELECT
+            o.order_id,
+            /* 디자인에 맞춰 날짜/시간 분리 */
+            DATE_FORMAT(o.approved_at, '%Y.%m.%d') as date_part,
+            DATE_FORMAT(o.approved_at, '%H:%i') as time_part,
+
+            l.title as lecture_title,
+            o.cost,
+            o.method,      /* 카드, 가상계좌 등 */
+            o.status       /* 2: 결제완료 */
+        FROM orders o
+                 JOIN lecture l ON o.le_id = l.le_id
+        WHERE o.mb_id = #{mb_id}
+          AND o.status = 2  /* 결제 완료된 것만 */
+        ORDER BY o.approved_at DESC
+    </select>
+
+	<!-- 세션 관련 검증 로직 -->
+	<select id="checkMemberOrderStatus" resultType="int">
+		SELECT EXISTS (
+			SELECT 1 FROM orders
+			WHERE
+				le_id = #{le_id} AND
+				mb_id = #{mb_id} AND
+				status = 2 AND
+				approved_at IS NOT NULL
+		)
+	</select>
+
+    <!-- 결제 완료된 인원수 조회  -->
+    <select id="countActiveOrdersByLeId" resultType="int">
+        SELECT COUNT(*) FROM orders WHERE le_id = #{leId} AND status = 2
+    </select>
+
+    <!-- 강의 최대 인원수 조회  -->
+    <select id="getMaxStudentsByLeId" resultType="int">
+        SELECT max_students FROM lecture_schedule WHERE le_id = #{leId} LIMIT 1
+    </select>
+
+    <!-- 결제 성공시 해당 강의의 현재 인원 +1 -->
+    <update id="updateAllScheduleCurrentStudents">
+        UPDATE lecture_schedule
+        SET current_students = current_students + 1
+        WHERE le_id = #{leId}
+    </update>
+</mapper>

@@ -1,0 +1,139 @@
+package com.seesun.service.order;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.seesun.dto.order.OrdersDTO;
+import com.seesun.global.exception.ErrorCode;
+import com.seesun.global.exception.GlobalException;
+import com.seesun.mapper.order.OrdersMapper;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+
+@Service
+@RequiredArgsConstructor
+public class OrdersService {
+
+    private final OrdersMapper ordersMapper;
+
+    @Value("${toss.secret-key}")
+    private String tossSecretKey;
+
+    // 1. 주문 생성 로직 (비즈니스 로직)
+    @Transactional // DB 작업하다가 에러나면 자동 취소(롤백)
+    public Map<String, Object> createOrder(Long mbId, Long leId) {
+        // 정원 체크 로직
+        int current = ordersMapper.countActiveOrdersByLeId(leId);
+        int max = ordersMapper.getMaxStudentsByLeId(leId);
+
+        // 수강인원 초과 에러 발생
+        if (current >= max) throw new GlobalException(ErrorCode.PAYMENT_FULL);
+
+        // 강의 및 유저 정보 조회
+        Map<String, Object> lectureInfo = ordersMapper.findLectureById(leId);
+        Map<String, Object> memberInfo = ordersMapper.findMemberById(mbId);
+
+        if (lectureInfo == null) throw new GlobalException(ErrorCode.LECTURE_NOT_FOUND);
+        if (memberInfo == null) throw new GlobalException(ErrorCode.INCORRECT_MEMBER_DATA);
+
+        String realTitle = (String) lectureInfo.get("title");
+        Long realCost = Long.valueOf(String.valueOf(lectureInfo.get("cost")));
+        String orderId = "ORD_" + UUID.randomUUID().toString();
+
+        // DTO 생성 및 DB 저장
+        OrdersDTO order = new OrdersDTO();
+        order.setOrder_id(orderId);
+        order.setMb_id(mbId);
+        order.setLe_id(leId);
+        order.setCost(realCost);
+        order.setTitle(realTitle);
+        order.setStatus(1); // 1: 대기 상태
+
+        ordersMapper.insertOrder(order);
+        System.out.println("✅ Service: 주문 대기 생성 완료 -> " + orderId);
+
+        // 결과 반환 (프론트엔드에 필요한 정보만)
+        Map<String, Object> response = new HashMap<>();
+        response.put("orderId", orderId);
+        response.put("amount", realCost);
+        response.put("orderName", realTitle);
+        response.put("customerName", memberInfo.get("customerName"));
+
+        return response;
+    }
+
+    // 2. 결제 승인 요청 로직 (외부 API 통신)
+    @Transactional
+    public void confirmPayment(String paymentKey, String orderId, String amount) throws Exception {
+        // 시크릿 키 인코딩
+        String secretKey = tossSecretKey + ":";
+        String encodedAuth = "Basic " + Base64.getEncoder().encodeToString(secretKey.getBytes(StandardCharsets.UTF_8));
+
+        // 요청 JSON 만들기
+        String jsonBody = String.format("{\"paymentKey\":\"%s\",\"orderId\":\"%s\",\"amount\":%s}", paymentKey, orderId, amount);
+
+        // 토스 API 호출
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("https://api.tosspayments.com/v1/payments/confirm"))
+                .header("Authorization", encodedAuth)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+        // 성공 시 DB 업데이트
+        if (response.statusCode() == 200) {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode jsonNode = mapper.readTree(response.body());
+            String method = jsonNode.get("method").asText();
+
+            OrdersDTO updateOrder = new OrdersDTO();
+            updateOrder.setOrder_id(orderId);
+            updateOrder.setPayment_key(paymentKey);
+            updateOrder.setMethod(method);
+
+            // 1. 주문 테이블 상태 업데이트 (결제 완료)
+            ordersMapper.updatePaymentSuccess(updateOrder);
+
+            // 2. 추가 로직 처리를 위한 주문 정보 조회
+            OrdersDTO orderInfo = ordersMapper.findOrderByOrderId(orderId);
+
+            if(orderInfo != null){
+                // 3. 해당 강의(le_id)로 등록된 모든 시간대 스케줄의 현재 인원을 1씩 증가시킴
+                // "통합 인원 관리"를 위해 해당 강의 아이디와 연결된 모든 스케줄에 반영
+                ordersMapper.updateAllScheduleCurrentStudents(orderInfo.getLe_id());
+
+                // 4. 수강신청 조회 테이블(member_enrollment)에 데이터 삽입
+                ordersMapper.insertEnrollment(orderInfo.getMb_id(), orderInfo.getLe_id());
+            }
+
+            System.out.println("✅ Service: 결제 승인, 인원 업데이트 및 수강등록 완료 -> " + orderId);
+        } else {
+            System.err.println("❌ Service: 승인 실패 응답 -> " + response.body());
+            throw new GlobalException(ErrorCode.PAYMENT_FAIL);
+        }
+    }
+    // OrdersService.java 내부
+
+    // [결제 내역 조회]
+    public List<Map<String, Object>> getPaymentHistory(Long mbId) {
+        return ordersMapper.getPaymentHistory(mbId);
+    }
+    
+    // 결제 상태만 확인
+    public int checkMemberOrderStatus(Long mbId, Long leId) {
+    	return ordersMapper.checkMemberOrderStatus(mbId, leId);
+    }
+}
