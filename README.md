@@ -1,4 +1,4 @@
-# 🏆 [SeeSun] : AI 기반 면접 & 코딩테스트 학습 플랫폼
+# 🏆 [SeeSun] : WebRTC 기반 실시간 멘토링 플랫폼
 
 ![Java](https://img.shields.io/badge/Java-21-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.5.9-6DB33F?style=for-the-badge&logo=spring-boot&logoColor=white)
